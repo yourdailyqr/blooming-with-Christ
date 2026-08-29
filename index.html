@@ -112,14 +112,15 @@
   .nav-arrows {
     display: flex;
     align-items: center;
-    gap: 26px;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0 8px;
     margin-bottom: 10px;
   }
   .nav-btn {
     background: none;
     border: none;
     color: #2A1507;
-    font-size: 24px;
     cursor: pointer;
     padding: 6px 12px;
     font-family: 'Quicksand', sans-serif;
@@ -141,7 +142,7 @@
   }
   .footer-link {
     font-family: 'Quicksand', sans-serif;
-    font-size: 16px;
+    font-size: 12px;
     letter-spacing: 1.5px;
     color: #2A1507;
     text-decoration: none;
@@ -240,6 +241,27 @@
     color: #2A1507;
     text-decoration: none;
   }
+
+  .arrow-left, .arrow-right {
+    display: inline-block;
+    width: 0;
+    height: 0;
+    border-style: solid;
+  }
+  .arrow-left {
+    border-width: 10px 14px 10px 0;
+    border-color: transparent #2A1507 transparent transparent;
+  }
+  .arrow-right {
+    border-width: 10px 0 10px 14px;
+    border-color: transparent transparent transparent #2A1507;
+  }
+  .nav-btn:disabled .arrow-left {
+    border-color: transparent rgba(42, 21, 7, 0.25) transparent transparent;
+  }
+  .nav-btn:disabled .arrow-right {
+    border-color: transparent transparent transparent rgba(42, 21, 7, 0.25);
+  }
 </style>
 </head>
 <body>
@@ -253,9 +275,9 @@
     <div class="attribution-line" id="attributionLine"></div>
     <div class="nav-section">
       <div class="nav-arrows">
-        <button class="nav-btn" id="prevBtn" onclick="navigate(-1)">&#9664;</button>
+        <button class="nav-btn" id="prevBtn" onclick="navigate(-1)"><span class="arrow-left"></span></button>
         <div class="nav-label" id="navLabel">today</div>
-        <button class="nav-btn" id="nextBtn" onclick="navigate(1)">&#9654;</button>
+        <button class="nav-btn" id="nextBtn" onclick="navigate(1)"><span class="arrow-right"></span></button>
       </div>
       <a href="https://www.yourdailyqr.com" target="_blank" class="footer-link">www.yourdailyqr.com</a>
     </div>
@@ -433,24 +455,54 @@ function navigate(dir) {
 
 // --- SCAN GATE: Rolling 72-Hour Inactivity Timer ---
 const GATE_KEY = 'ydq_btb_spiritual_last_view_ts';
+const SESSION_KEY = 'ydq_btb_spiritual_session';
 const GATE_HOURS = 72;
 
-function checkGate() {
+function isFreshOpen() {
+  // A fresh open = new tab, new scan, typed URL, or reopened browser.
+  // sessionStorage is wiped when the tab/window closes, so if our
+  // session flag is absent this is a brand-new page open.
+  return !sessionStorage.getItem(SESSION_KEY);
+}
+
+function markSession() {
+  sessionStorage.setItem(SESSION_KEY, '1');
+}
+
+function setStamp() {
+  localStorage.setItem(GATE_KEY, Date.now().toString());
+}
+
+function clearStamp() {
+  localStorage.removeItem(GATE_KEY);
+}
+
+function isExpired() {
   const stamp = localStorage.getItem(GATE_KEY);
-  const now = Date.now();
-  if (!stamp) {
-    localStorage.setItem(GATE_KEY, now.toString());
-    return true;
+  if (!stamp) return false;  // no stamp = nothing to expire
+  const hours = (Date.now() - parseInt(stamp, 10)) / (1000 * 60 * 60);
+  return hours >= GATE_HOURS;
+}
+
+function checkGate() {
+  // RULE 1: Fresh open (QR scan, typed URL, new tab) — ALWAYS show content.
+  if (isFreshOpen()) {
+    markSession();
+    setStamp();
+    return true;  // show content
   }
-  const elapsed = now - parseInt(stamp, 10);
-  const hours = elapsed / (1000 * 60 * 60);
-  if (hours < GATE_HOURS) {
-    localStorage.setItem(GATE_KEY, now.toString());
-    return true;
-  } else {
-    localStorage.removeItem(GATE_KEY);
-    return false;
+
+  // RULE 2: Existing session, check the 72-hour timer.
+  if (isExpired()) {
+    // 72+ hours — clear stamp, show gate.
+    // User must rescan (which opens a fresh session → Rule 1).
+    clearStamp();
+    return false;  // show gate
   }
+
+  // RULE 3: Existing session, under 72 hours — reset stamp, show content.
+  setStamp();
+  return true;  // show content
 }
 
 function applyGate(allowed) {
@@ -476,10 +528,18 @@ if (document.fonts && document.fonts.ready) {
   });
 }
 
-// Re-check when tab becomes visible
+// Re-check when tab becomes visible again (covers tabs left open 72+ hours)
 document.addEventListener('visibilitychange', function() {
   if (document.visibilityState === 'visible') {
-    applyGate(checkGate());
+    if (isExpired()) {
+      clearStamp();
+      applyGate(false);
+    } else {
+      setStamp();
+      if (!document.getElementById('gateScreen').classList.contains('active')) {
+        render();
+      }
+    }
   }
 });
 
